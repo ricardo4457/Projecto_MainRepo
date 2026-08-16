@@ -1,131 +1,85 @@
-# Sistema de Web Scraping de Livros
+# Wook Scraper — Automated School Textbook Collection and Management System
 
-## Estrutura do Repositório
-Related repositories:
+A system that automates the collection, cataloguing, and lookup of school textbooks adopted by Portuguese schools, sourced from [Wook](https://www.wook.pt). Wook does not expose a public API, so this project replaces the manual navigation (year, teaching cycle, district, city, school, course, subjects) with an automated pipeline backed by a database cache.
 
-```text
-.
-├── backend-laravel/     # API Central e orquestrador em Laravel
-├── frontend-vue/        # Interface de utilizador em Vue.js
-└── scraping-service/    # Microsserviço de scraping em Node.js
-```
-- API/Backend (Laravel): [WebScrapperApi](https://github.com/ricardo4457/WebScrapperApi)
-- Scraping service (Node.js): [WebScrapper](https://github.com/ricardo4457/WebScrapper)
+Final year project, Computer Engineering, ISTEC Porto.
 
----
+## Project repositories
 
-## Requisitos do Sistema
-## Requirements
+This repository is the index for the system. The code lives in three independent repositories, managed here as Git submodules:
 
-Para executar este projeto, certifique-se de que possui os seguintes softwares instalados no seu ambiente de desenvolvimento:
+| Repository | Role | Stack |
+| :--- | :--- | :--- |
+| [WebScrapperApi](https://github.com/ricardo4457/WebScrapperApi) | Central orchestrator. The only component with database access, exposes the public API, and dispatches scrape requests. | Laravel 12, MySQL |
+| [WebScrapper](https://github.com/ricardo4457/WebScrapper) | Browser automation microservice. Consumes jobs from a queue, runs the navigation against Wook, and reports results back via callback. | Node.js, Playwright / Camoufox, BullMQ, Redis |
+| [WebScrapper-Frontend](https://github.com/ricardo4457/WebScrapper-Frontend) | Guided search wizard used by end users, with an interactive map of Portugal and price history. | Vue 3, Pinia, Vuetify |
 
-- **Docker** e **Docker Compose** (recomendado para a execução dos serviços e bases de dados)
-- **PHP** >= 8.2 (caso execute o Laravel fora de contentor)
-- **Composer** (gestor de dependências do PHP)
-- **Node.js** >= 18.x e **npm** / **yarn** (para o frontend e o microsserviço Node.js)
-- **Redis** (servidor de filas, caso não utilize o Docker Compose)
-- Node.js 18+
-- The Laravel API running and reachable (see `VITE_API_URL` below)
+Each repository has its own README with details on internal architecture, endpoints, environment variables, and setup instructions. This document only covers the system-level view.
 
----
-
-## Variáveis de Ambiente
-
-Crie e configure os ficheiros `.env` em cada microsserviço conforme as necessidades do seu ambiente. Abaixo encontram-se as principais variáveis de configuração utilizadas (com foco no microsserviço de scraping):
-## Running the project
-
-```env
-# --- Redis / BullMQ ------------------------------------------------------------
-REDIS_HOST=localhost
-REDIS_PORT=6379
-```bash
-npm install
-npm run dev
-```
-
-# --- Servidor Express (rota /scrape) --------------------------------------------
-PORT=3000
-```bash
-npm run build     # production build
-npx vitest run    # Vitest unit tests
-```
-
-SCRAPE_CONCURRENCY=3
-SCRAPER_ENGINE=camoufox
-# SCRAPER_HEADLESS=true
-### Environment variables
-
-LARAVEL_API_URL=http://localhost:8000/api
-```env
-VITE_API_URL=http://localhost:8000/api
-VITE_APP_KEY=...   # sent as X-App-Key header, validated by Laravel's VerifyAppApiKey middleware
-```
-
----
-
-## Arquitetura do Sistema
-
-O sistema é composto pelas seguintes tecnologias e serviços principais:
 ## Architecture
 
-- **Frontend (Vue.js):** Interface de utilizador responsável por iniciar pedidos de scraping, consultar estados e apresentar os resultados das pesquisas de livros.
-- **Backend / API Principal (Laravel):** Atua como orquestrador central. Recebe os pedidos do frontend, gere a segurança, e comunica com o serviço de scraping.
-- **Worker de Scraping (Node.js):** Um microsserviço dedicado à execução assíncrona das tarefas de extração de dados.
-- **Mensageria e Filas (Redis + BullMQ):** Sistema escolhido para a gestão de jobs em background, devido à sua baixa latência e gestão nativa do estado das tarefas.
-![Frontend architecture](./docs/Arquitetura_Frontend.drawio.png)
+Laravel is the single source of truth. It decides when a scrape is needed, sends the task to the Node service through a queue, and is the only component with direct database access. Node never touches the database; the only contract between the two is an authenticated HTTP callback.
 
----
+![Context diagram](./docs/Diagrama%20de%20Contexto.drawio.png)
 
-## Segurança e Fluxo de Comunicação
+- **Website (Vue)** sends search requests and polls scraping status through the **Laravel API**.
+- **Laravel API** checks the database first; on a cache miss, it sends the parameters to the **Job Queue** (BullMQ / Redis).
+- The **Scrapper** (Node.js / Playwright) consumes the queue, collects raw data from **Wook**, and sends the processed data back to the Laravel API via callback.
+- The Laravel API persists the result, and the Website then serves the response straight from the database.
 
-O sistema implementa fronteiras estritas de segurança entre os seus componentes:
-The app is organized by functional domain rather than by technical type, so a change to the search flow stays confined to `search-flow/` instead of spreading across unrelated folders. Data flows top-down: **Views/Components** read from **Pinia stores**, stores call **services** for HTTP access, and services talk to the Laravel API — components never call `axios` directly.
+## Use cases
 
-| Origem      | Destino     | Finalidade                                                  | Mecanismo de Proteção                                         |
-| :---------- | :---------- | :---------------------------------------------------------- | :------------------------------------------------------------ |
-| **Vue.js**  | **Laravel** | Iniciar scraping, consultar estado e pesquisar livros.      | API key, validação de origem (CORS) e rate limiting.          |
-| **Laravel** | **Node.js** | Enviar tarefas de scraping para a fila de processamento.    | Comunicação interna de rede (isolada).                        |
-| **Node.js** | **Laravel** | Enviar resultados (callbacks) e atualizar estados dos jobs. | Token partilhado validado pelo middleware `VerifyNodeApiKey`. |
+![Use case diagram](./docs/Diagrama%20Use%20case.drawio.png)
+
+- **Website User**: searches for books, looks up textbooks adopted by a school, and checks price history.
+- **API User**: checks the status of a scraping operation through the public API.
+- **WebScrapper API / Scraping Service**: internal flow covering start, extraction, callback validation, and persistence of the scraped books, including updates to existing records and price history.
+
+## Security and communication flow
+
+| From | To | Purpose | Mechanism |
+| :--- | :--- | :--- | :--- |
+| Vue.js | Laravel | Trigger scraping, check status, and search books | API key, CORS, rate limiting |
+| Laravel | Node.js | Send scraping tasks to the queue | Isolated internal network |
+| Node.js | Laravel | Report results and update job status | Shared token, `VerifyNodeApiKey` middleware |
+
+## Getting started
+
+Clone the repository together with its submodules:
+
+```bash
+git clone --recurse-submodules https://github.com/ricardo4457/Projecto_MainRepo.git
 ```
 
-## Como Executar o Projeto
+If you already cloned it without `--recurse-submodules`:
 
-1. Clone este repositório:
-   ```bash
-   git clone https://github.com/seu-utilizador/seu-repositorio.git
-   ```
-2. Suba os serviços utilizando o Docker Compose:
-   ```bash
-   docker-compose up -d
-   ```
-3. Configure as variáveis de ambiente (`.env`) nos diretórios do Laravel e do Node.js, certificando-se de partilhar o token de segurança entre eles.
-4. Execute as migrações do Laravel:
-   ```bash
-   php artisan migrate
-   ```
+```bash
+git submodule update --init --recursive
+```
+
+There is no single root-level `docker-compose` that brings up all three services together. Each service starts independently, following its own README:
+
+1. **WebScrapperApi** (Laravel): see the [README](https://github.com/ricardo4457/WebScrapperApi#getting-started) for migrations, `.env`, and `php artisan serve`.
+2. **WebScrapper** (Node.js): ships with its own `docker-compose.yml` including Redis and RedisInsight, see the [README](https://github.com/ricardo4457/WebScrapper#readme).
+3. **WebScrapper-Frontend** (Vue): `npm install && npm run dev`, see the [README](https://github.com/ricardo4457/WebScrapper-Frontend#readme).
+
+The three services share secrets with each other (API key, Node ↔ Laravel token) that need to be configured manually in each `.env`.
 
 ## Testing
 
-Para garantir a integridade do código e o correto funcionamento dos microsserviços, pode executar a bateria de testes disponível em cada módulo:
+Each repository runs its own test suite:
 
+```bash
+# WebScrapperApi
+php artisan test
 
-- **Backend (Laravel):**
-  ```bash
-  php artisan test
-  ```
-- **Microsserviço de Scraping (Node.js):**
-  ```bash
-  npm test
-  ```
-- **Front-end Vue (Vue.js):**
+# WebScrapper
+npm test
 
-  ```bash
-  npx vitest run
-  ```
+# WebScrapper-Frontend
+npx vitest run
+```
 
-## Direitos de Autor e Licença
 ## License
 
 MIT — see [LICENSE](LICENSE).
-
-Este projeto está licenciado sob a **MIT License**. Consulte o ficheiro [LICENSE](LICENSE) para mais detalhes.
