@@ -1,0 +1,9 @@
+[submodule "WebScrapper-Frontend"]
+	path = WebScrapper-Frontend
+	url = https://github.com/ricardo4457/WebScrapper-Frontend.git
+[submodule "WebScrapperApi"]
+	path = WebScrapperApi
+	url = https://github.com/ricardo4457/WebScrapperApi.git
+[submodule "WebScrapper"]
+	path = WebScrapper
+	url = https://github.com/ricardo4457/WebScrapper.git
