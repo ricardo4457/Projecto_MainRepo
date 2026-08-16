@@ -120,8 +120,8 @@ Para garantir a integridade do código e o correto funcionamento dos microsservi
 - **Front-end Vue (Vue.js):**
 
   ```bash
-npx vitest run
-```
+  npx vitest run
+  ```
 
 ## Direitos de Autor e Licença
 ## License
