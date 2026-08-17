@@ -1,4 +1,4 @@
-# Wook Scraper — Automated School Textbook Collection and Management System
+# WebScrapper For SchoolBooks  — Automated School Textbook Collection and Management System
 
 A system that automates the collection, cataloguing, and lookup of school textbooks adopted by Portuguese schools, sourced from [Wook](https://www.wook.pt). Wook does not expose a public API, so this project replaces the manual navigation (year, teaching cycle, district, city, school, course, subjects) with an automated pipeline backed by a database cache.
 
